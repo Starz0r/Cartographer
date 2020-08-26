@@ -1,3 +1,7 @@
+mod global;
+mod grid;
+mod layer;
+
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -36,8 +40,8 @@ pub struct OgmoLayer {
     pub eid: String,
     pub offset_x: i64,
     pub offset_y: i64,
-    pub grid_cell_width: i64,
-    pub grid_cell_height: i64,
+    pub grid_cell_width: u32,
+    pub grid_cell_height: u32,
     pub grid_cells_x: i64,
     pub grid_cells_y: i64,
     #[serde(default)]
@@ -64,10 +68,56 @@ fn main() {
     let map: OgmoMap = serde_json::from_str(&con).unwrap();
 
     // open a new file
-    let mut dst = File::create(opt.output).unwrap();
+    let dst = File::create(opt.output).unwrap();
 
     // write file header
-    dst.write("LVL Format 0.".as_bytes()).unwrap();
+    global::write_header(&dst).unwrap();
+
+    // global level properties
+    global::set_width(&dst, map.width).unwrap();
+    global::set_height(&dst, map.height).unwrap();
+
+    // iterate through layers
+    for layer in map.layers.iter() {
+        layer::set_width(&dst, layer.grid_cell_width).unwrap();
+        layer::set_height(&dst, layer.grid_cell_height).unwrap();
+        // keep track of the y axis manually
+        if layer.array_mode == 0 || layer.grid.is_some() {
+            let (mut cur_x, mut cur_y) = (0, 0);
+            let grid = layer.grid.as_ref().unwrap();
+            for cell in grid.iter() {
+                if cur_x == layer.grid_cells_x {
+                    cur_x = 0;
+                    cur_y += 1;
+                }
+
+                grid::cell_set(
+                    &dst,
+                    cur_x as i16,
+                    cur_y as i16,
+                    cell.parse::<i8>().unwrap(),
+                )
+                .unwrap();
+            }
+        } else {
+            let (mut cur_x, mut cur_y) = (0, 0);
+            let grid = layer.grid2d.as_ref().unwrap();
+            for row in grid.iter() {
+                for cell in row.iter() {
+                    grid::cell_set(
+                        &dst,
+                        cur_x as i16,
+                        cur_y as i16,
+                        cell.parse::<i8>().unwrap(),
+                    )
+                    .unwrap();
+                    cur_x += 1;
+                }
+                cur_x = 0;
+                cur_y += 1;
+            }
+        }
+    }
 
     // sync to disk
     dst.sync_data().unwrap();
