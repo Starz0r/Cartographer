@@ -1,3 +1,4 @@
+mod entity;
 mod global;
 mod grid;
 mod layer;
@@ -19,6 +20,9 @@ struct Cli {
 
     #[structopt(short, long, parse(from_os_str))]
     output: PathBuf,
+
+    #[structopt(short, long, parse(from_os_str))]
+    entity_table: PathBuf,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,6 +53,39 @@ pub struct OgmoLayer {
     pub array_mode: i64,
     #[serde(default, rename = "grid2D")]
     pub grid2d: Option<Vec<Vec<String>>>,
+    #[serde(default)]
+    pub entities: Option<Vec<OgmoEntity>>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OgmoEntity {
+    pub name: String,
+    pub id: i64,
+    #[serde(rename = "_eid")]
+    pub eid: String,
+    pub x: i64,
+    pub y: i64,
+    pub width: i64,
+    pub height: i64,
+    pub origin_x: i64,
+    pub origin_y: i64,
+    pub rotation: i64,
+    pub flipped_x: bool,
+    pub flipped_y: bool,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityTable {
+    pub entity_table: Vec<EntityTableEntry>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityTableEntry {
+    pub name: String,
+    pub value: i64,
 }
 
 fn main() {
@@ -66,6 +103,17 @@ fn main() {
     // marshal into a data structure
     buf.read_to_string(&mut con).unwrap();
     let map: OgmoMap = serde_json::from_str(&con).unwrap();
+
+    // entity table
+    let entity_table_file = File::open(opt.entity_table).unwrap();
+    let mut entity_table_buf = BufReader::new(entity_table_file);
+    let mut entity_table_contents = String::new();
+    entity_table_buf
+        .read_to_string(&mut entity_table_contents)
+        .unwrap();
+    let ent_table = serde_json::from_str::<EntityTable>(&entity_table_contents)
+        .unwrap()
+        .entity_table;
 
     // open a new file
     let dst = File::create(opt.output).unwrap();
@@ -85,9 +133,10 @@ fn main() {
         if layer.array_mode == 0 || layer.grid.is_some() {
             let (mut cur_x, mut cur_y) = (0, 0);
             let grid = layer.grid.as_ref().unwrap();
+            // grid cells
             for cell in grid.iter() {
                 if cur_x == layer.grid_cells_x {
-                    cur_x = 0;
+                    cur_x = 0; // reset x cursor
                     cur_y += 1;
                 }
 
@@ -102,6 +151,7 @@ fn main() {
         } else {
             let (mut cur_x, mut cur_y) = (0, 0);
             let grid = layer.grid2d.as_ref().unwrap();
+            // grid rows and cells
             for row in grid.iter() {
                 for cell in row.iter() {
                     grid::cell_set(
@@ -113,8 +163,29 @@ fn main() {
                     .unwrap();
                     cur_x += 1;
                 }
-                cur_x = 0;
+                cur_x = 0; // reset x cursor
                 cur_y += 1;
+            }
+        }
+
+        // entities
+        if layer.entities.is_none() {
+            continue;
+        }
+        let entities = layer.entities.as_ref().unwrap();
+        for entity in entities.iter() {
+            for entry in ent_table.iter() {
+                if entity.name.eq(entry.name.as_str()) {
+                    entity::create(
+                        &dst,
+                        entry.value as i32,
+                        entity.x as i32,
+                        entity.y as i32,
+                        entity.width as u32,
+                        entity.height as u32,
+                    )
+                    .unwrap();
+                }
             }
         }
     }
