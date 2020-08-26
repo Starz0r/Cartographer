@@ -11,17 +11,13 @@ pub fn write_header(mut f: &File) -> Result<()> {
 pub fn set_width(mut f: &File, w: u64) -> Result<()> {
     f.write_u8(0x0)?; // global properties instruction
     f.write_u8(0x0)?; // width flag
-    for char in w.to_le_bytes().iter() {
-        f.write_u8(*char)?; // width operand
-    }
+    f.write_u64::<LittleEndian>(w)?; // width operand
     Ok(())
 }
 
 pub fn set_height(mut f: &File, h: u64) -> Result<()> {
     f.write_u8(0x0)?; // global properties instruction
     f.write_u8(0x1)?; // height flag
-    for char in h.to_le_bytes().iter() {
-        f.write_u8(*char)?; // height operand
-    }
+    f.write_u64::<LittleEndian>(h)?; // height operand
     Ok(())
 }
