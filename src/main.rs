@@ -151,10 +151,25 @@ fn main() {
                         cell.parse::<i8>().unwrap(),
                     )
                     .unwrap();
-                    cur_x += 1;
                 }
-                cur_x = 0; // reset x cursor
-                cur_y += 1;
+            } else {
+                let (mut cur_x, mut cur_y) = (0, 0);
+                let grid = layer.grid2d.as_ref().unwrap();
+                // grid rows and cells
+                for row in grid.iter() {
+                    for cell in row.iter() {
+                        grid::cell_set(
+                            &dst,
+                            cur_x as i16,
+                            cur_y as i16,
+                            cell.parse::<i8>().unwrap(),
+                        )
+                        .unwrap();
+                        cur_x += 1;
+                    }
+                    cur_x = 0; // reset x cursor
+                    cur_y += 1;
+                }
             }
         }
 
@@ -173,6 +188,9 @@ fn main() {
                         entity.y as i32,
                         entity.width as u32,
                         entity.height as u32,
+                        entity.rotation as i16,
+                        entity.flipped_x,
+                        entity.flipped_y,
                     )
                     .unwrap();
                 }
