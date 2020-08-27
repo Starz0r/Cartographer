@@ -50,7 +50,7 @@ pub struct OgmoLayer {
     pub grid_cells_y: i64,
     #[serde(default)]
     pub grid: Option<Vec<String>>,
-    pub array_mode: i64,
+    pub array_mode: Option<i64>,
     #[serde(default, rename = "grid2D")]
     pub grid2d: Option<Vec<Vec<String>>>,
     #[serde(default)]
@@ -129,31 +129,21 @@ fn main() {
     for layer in map.layers.iter() {
         layer::set_width(&dst, layer.grid_cell_width).unwrap();
         layer::set_height(&dst, layer.grid_cell_height).unwrap();
-        // keep track of the y axis manually
-        if layer.array_mode == 0 || layer.grid.is_some() {
-            let (mut cur_x, mut cur_y) = (0, 0);
-            let grid = layer.grid.as_ref().unwrap();
-            // grid cells
-            for cell in grid.iter() {
-                if cur_x == layer.grid_cells_x {
-                    cur_x = 0; // reset x cursor
-                    cur_y += 1;
-                }
 
-                grid::cell_set(
-                    &dst,
-                    cur_x as i16,
-                    cur_y as i16,
-                    cell.parse::<i8>().unwrap(),
-                )
-                .unwrap();
-            }
-        } else {
-            let (mut cur_x, mut cur_y) = (0, 0);
-            let grid = layer.grid2d.as_ref().unwrap();
-            // grid rows and cells
-            for row in grid.iter() {
-                for cell in row.iter() {
+        if layer.array_mode.is_some() {
+            let array_mode = layer.array_mode.unwrap();
+
+            // keep track of the y axis manually
+            if array_mode == 0 || layer.grid.is_some() {
+                let (mut cur_x, mut cur_y) = (0, 0);
+                let grid = layer.grid.as_ref().unwrap();
+                // grid cells
+                for cell in grid.iter() {
+                    if cur_x == layer.grid_cells_x {
+                        cur_x = 0; // reset x cursor
+                        cur_y += 1;
+                    }
+
                     grid::cell_set(
                         &dst,
                         cur_x as i16,
