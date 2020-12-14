@@ -2,6 +2,7 @@ mod entity;
 mod global;
 mod grid;
 mod layer;
+mod tile;
 
 use std::fs::File;
 use std::io::BufReader;
@@ -12,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Result;
 use structopt::StructOpt;
 
+use scopeguard::{defer, defer_on_unwind};
+
 #[derive(StructOpt, Debug)]
 #[structopt(name = "cartographer")]
 struct Cli {
@@ -21,8 +24,8 @@ struct Cli {
     #[structopt(short, long, parse(from_os_str))]
     output: PathBuf,
 
-    #[structopt(short, long, parse(from_os_str))]
-    entity_table: PathBuf,
+    #[structopt(long, parse(from_os_str))]
+    info_table: PathBuf,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -54,7 +57,11 @@ pub struct OgmoLayer {
     #[serde(default, rename = "grid2D")]
     pub grid2d: Option<Vec<Vec<String>>>,
     #[serde(default)]
-    pub entities: Option<Vec<OgmoEntity>>,
+    pub entities: Vec<OgmoEntity>,
+    pub tileset: Option<String>,
+    #[serde(default)]
+    pub data_coords2_d: Vec<Vec<Vec<i64>>>,
+    pub export_mode: Option<i64>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,24 +73,34 @@ pub struct OgmoEntity {
     pub eid: String,
     pub x: i64,
     pub y: i64,
-    pub width: i64,
-    pub height: i64,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
     pub origin_x: i64,
     pub origin_y: i64,
-    pub rotation: i64,
-    pub flipped_x: bool,
-    pub flipped_y: bool,
+    pub rotation: Option<i64>,
+    pub flipped_x: Option<bool>,
+    pub flipped_y: Option<bool>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EntityTable {
+pub struct InfoTables {
     pub entity_table: Vec<EntityTableEntry>,
+    pub tileset_table: Vec<TilesetTableEntry>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EntityTableEntry {
+    pub name: String,
+    pub value: i64,
+    pub width: i64,
+    pub height: i64,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TilesetTableEntry {
     pub name: String,
     pub value: i64,
 }
@@ -104,16 +121,17 @@ fn main() {
     buf.read_to_string(&mut con).unwrap();
     let map: OgmoMap = serde_json::from_str(&con).unwrap();
 
-    // entity table
-    let entity_table_file = File::open(opt.entity_table).unwrap();
-    let mut entity_table_buf = BufReader::new(entity_table_file);
-    let mut entity_table_contents = String::new();
-    entity_table_buf
-        .read_to_string(&mut entity_table_contents)
+    // read infotable
+    let infotable_file = File::open(opt.info_table).unwrap();
+    let mut infotable_buf = BufReader::new(infotable_file);
+    let mut infotable_contents = String::new();
+    infotable_buf
+        .read_to_string(&mut infotable_contents)
         .unwrap();
-    let ent_table = serde_json::from_str::<EntityTable>(&entity_table_contents)
-        .unwrap()
-        .entity_table;
+    let infotable = serde_json::from_str::<InfoTables>(&infotable_contents).unwrap();
+
+    let ent_table = infotable.entity_table;
+    let ts_table = infotable.tileset_table;
 
     // open a new file
     let dst = File::create(opt.output).unwrap();
@@ -138,6 +156,7 @@ fn main() {
             layer::set_type(&dst, 3).unwrap();
         }
 
+        // set width and height
         layer::set_width(&dst, layer.grid_cell_width).unwrap();
         layer::set_height(&dst, layer.grid_cell_height).unwrap();
 
@@ -164,48 +183,80 @@ fn main() {
                     .unwrap();
                 }
             } else {
-                let (mut cur_x, mut cur_y) = (0, 0);
-                let grid = layer.grid2d.as_ref().unwrap();
-                // grid rows and cells
-                for row in grid.iter() {
-                    for cell in row.iter() {
-                        grid::cell_set(
-                            &dst,
-                            cur_x as i16,
-                            cur_y as i16,
-                            cell.parse::<i8>().unwrap(),
-                        )
-                        .unwrap();
-                        cur_x += 1;
+                if layer.grid2d.is_some() {
+                    let (mut cur_x, mut cur_y) = (0, 0);
+                    let grid = layer.grid2d.as_ref().unwrap();
+                    // grid rows and cells
+                    for row in grid.iter() {
+                        for cell in row.iter() {
+                            grid::cell_set(
+                                &dst,
+                                cur_x as i16,
+                                cur_y as i16,
+                                cell.parse::<i8>().unwrap(),
+                            )
+                            .unwrap();
+                            cur_x += 1;
+                        }
+                        cur_x = 0; // reset x cursor
+                        cur_y += 1;
                     }
-                    cur_x = 0; // reset x cursor
-                    cur_y += 1;
                 }
             }
         }
 
         // entities
-        if layer.entities.is_none() {
-            continue;
-        }
-        let entities = layer.entities.as_ref().unwrap();
+        let entities = &layer.entities;
         for entity in entities.iter() {
             for entry in ent_table.iter() {
                 if entity.name.eq(entry.name.as_str()) {
+                    let w = entity.width.unwrap_or(entry.width);
+                    let h = entity.height.unwrap_or(entry.height);
+                    let rot = entity.rotation.unwrap_or(0);
+                    let flipped_x = entity.flipped_x.unwrap_or(false);
+                    let flipped_y = entity.flipped_y.unwrap_or(false);
                     entity::create(
                         &dst,
                         entry.value as i32,
                         entity.x as i32,
                         entity.y as i32,
-                        entity.width as u32,
-                        entity.height as u32,
-                        entity.rotation as i16,
-                        entity.flipped_x,
-                        entity.flipped_y,
+                        w as u32,
+                        h as u32,
+                        rot as i16,
+                        flipped_x,
+                        flipped_y,
                     )
                     .unwrap();
                 }
             }
+        }
+
+        // tiles
+        let (mut cur_x, mut cur_y) = (0, 0);
+        let tile_rows = &layer.data_coords2_d;
+        for tile_row in tile_rows.iter() {
+            for tile in tile_row.iter() {
+                if tile.len().eq(&1) {
+                    cur_x += 1;
+                    continue;
+                }
+                for entry in ts_table.iter() {
+                    if entry.name.eq(entry.name.as_str()) {
+                        tile::new(
+                            &dst,
+                            entry.value as i32,
+                            cur_x,
+                            cur_y,
+                            tile[0] as u16,
+                            tile[1] as u16,
+                        )
+                        .unwrap();
+                    }
+                }
+                cur_x += 1;
+            }
+            cur_x = 0; // reset x cursor
+            cur_y += 1;
         }
     }
 
