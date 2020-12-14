@@ -15,3 +15,10 @@ pub fn set_height(mut f: &File, h: u32) -> Result<()> {
     f.write_u32::<LittleEndian>(h)?; // width operand
     Ok(())
 }
+
+pub fn set_type(mut f: &File, typ: u8) -> Result<()> {
+    f.write_u8(0x1)?; // layer properties instruction
+    f.write_u8(0x4)?; // set type flag
+    f.write_u8(typ)?; // type operand
+    Ok(())
+}
