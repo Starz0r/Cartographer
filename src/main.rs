@@ -127,6 +127,17 @@ fn main() {
 
     // iterate through layers
     for layer in map.layers.iter() {
+        // signal layer type
+        if !layer.data_coords2_d.is_empty() {
+            layer::set_type(&dst, 0).unwrap();
+        }
+        if layer.array_mode.is_some() {
+            layer::set_type(&dst, 1).unwrap();
+        }
+        if !layer.entities.is_empty() {
+            layer::set_type(&dst, 3).unwrap();
+        }
+
         layer::set_width(&dst, layer.grid_cell_width).unwrap();
         layer::set_height(&dst, layer.grid_cell_height).unwrap();
 
