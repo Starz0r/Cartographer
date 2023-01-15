@@ -8,10 +8,12 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-use byteorder::{LittleEndian, WriteBytesExt};
-use serde::{Deserialize, Serialize};
-use serde_json::Result;
-use structopt::StructOpt;
+use {
+    anyhow::Result,
+    byteorder::{LittleEndian, WriteBytesExt},
+    serde::{Deserialize, Serialize},
+    structopt::StructOpt,
+};
 
 use scopeguard::{defer, defer_on_unwind};
 
@@ -105,7 +107,7 @@ pub struct TilesetTableEntry {
     pub value: i64,
 }
 
-fn main() {
+pub fn main() -> Result<()> {
     use std::io::Read;
     use std::io::Write;
 
@@ -113,52 +115,50 @@ fn main() {
     let opt = Cli::from_args();
 
     // buffered file reading
-    let src = File::open(opt.input).unwrap();
+    let src = File::open(opt.input)?;
     let mut buf = BufReader::new(src);
     let mut con = String::new();
 
     // marshal into a data structure
-    buf.read_to_string(&mut con).unwrap();
-    let map: OgmoMap = serde_json::from_str(&con).unwrap();
+    buf.read_to_string(&mut con)?;
+    let map: OgmoMap = serde_json::from_str(&con)?;
 
     // read infotable
-    let infotable_file = File::open(opt.info_table).unwrap();
+    let infotable_file = File::open(opt.info_table)?;
     let mut infotable_buf = BufReader::new(infotable_file);
     let mut infotable_contents = String::new();
-    infotable_buf
-        .read_to_string(&mut infotable_contents)
-        .unwrap();
-    let infotable = serde_json::from_str::<InfoTables>(&infotable_contents).unwrap();
+    infotable_buf.read_to_string(&mut infotable_contents)?;
+    let infotable = serde_json::from_str::<InfoTables>(&infotable_contents)?;
 
     let ent_table = infotable.entity_table;
     let ts_table = infotable.tileset_table;
 
     // open a new file
-    let dst = File::create(opt.output).unwrap();
+    let dst = File::create(opt.output)?;
 
     // write file header
-    global::write_header(&dst).unwrap();
+    global::write_header(&dst)?;
 
     // global level properties
-    global::set_width(&dst, map.width).unwrap();
-    global::set_height(&dst, map.height).unwrap();
+    global::set_width(&dst, map.width)?;
+    global::set_height(&dst, map.height)?;
 
     // iterate through layers
     for layer in map.layers.iter() {
         // signal layer type
         if !layer.data_coords2_d.is_empty() {
-            layer::set_type(&dst, 0).unwrap();
+            layer::set_type(&dst, 0)?;
         }
         if layer.array_mode.is_some() {
-            layer::set_type(&dst, 1).unwrap();
+            layer::set_type(&dst, 1)?;
         }
         if !layer.entities.is_empty() {
-            layer::set_type(&dst, 3).unwrap();
+            layer::set_type(&dst, 3)?;
         }
 
         // set width and height
-        layer::set_width(&dst, layer.grid_cell_width).unwrap();
-        layer::set_height(&dst, layer.grid_cell_height).unwrap();
+        layer::set_width(&dst, layer.grid_cell_width)?;
+        layer::set_height(&dst, layer.grid_cell_height)?;
 
         if layer.array_mode.is_some() {
             let array_mode = layer.array_mode.unwrap();
@@ -174,13 +174,7 @@ fn main() {
                         cur_y += 1;
                     }
 
-                    grid::cell_set(
-                        &dst,
-                        cur_x as i16,
-                        cur_y as i16,
-                        cell.parse::<i8>().unwrap(),
-                    )
-                    .unwrap();
+                    grid::cell_set(&dst, cur_x as i16, cur_y as i16, cell.parse::<i8>()?).unwrap();
                 }
             } else {
                 if layer.grid2d.is_some() {
@@ -189,13 +183,7 @@ fn main() {
                     // grid rows and cells
                     for row in grid.iter() {
                         for cell in row.iter() {
-                            grid::cell_set(
-                                &dst,
-                                cur_x as i16,
-                                cur_y as i16,
-                                cell.parse::<i8>().unwrap(),
-                            )
-                            .unwrap();
+                            grid::cell_set(&dst, cur_x as i16, cur_y as i16, cell.parse::<i8>()?)?;
                             cur_x += 1;
                         }
                         cur_x = 0; // reset x cursor
@@ -225,8 +213,7 @@ fn main() {
                         rot as i16,
                         flipped_x,
                         flipped_y,
-                    )
-                    .unwrap();
+                    )?;
                 }
             }
         }
@@ -249,8 +236,7 @@ fn main() {
                             cur_y,
                             tile[0] as u16,
                             tile[1] as u16,
-                        )
-                        .unwrap();
+                        )?;
                     }
                 }
                 cur_x += 1;
@@ -261,5 +247,5 @@ fn main() {
     }
 
     // sync to disk
-    dst.sync_data().unwrap();
+    Ok(dst.sync_data()?)
 }
