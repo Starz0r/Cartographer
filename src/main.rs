@@ -32,60 +32,6 @@ struct Cli {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OgmoMap {
-    pub ogmo_version: String,
-    pub width: u64,
-    pub height: u64,
-    pub offset_x: i64,
-    pub offset_y: i64,
-    pub layers: Vec<OgmoLayer>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OgmoLayer {
-    pub name: String,
-    #[serde(rename = "_eid")]
-    pub eid: String,
-    pub offset_x: i64,
-    pub offset_y: i64,
-    pub grid_cell_width: u32,
-    pub grid_cell_height: u32,
-    pub grid_cells_x: i64,
-    pub grid_cells_y: i64,
-    #[serde(default)]
-    pub grid: Option<Vec<String>>,
-    pub array_mode: Option<i64>,
-    #[serde(default, rename = "grid2D")]
-    pub grid2d: Option<Vec<Vec<String>>>,
-    #[serde(default)]
-    pub entities: Vec<OgmoEntity>,
-    pub tileset: Option<String>,
-    #[serde(default)]
-    pub data_coords2_d: Vec<Vec<Vec<i64>>>,
-    pub export_mode: Option<i64>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OgmoEntity {
-    pub name: String,
-    pub id: i64,
-    #[serde(rename = "_eid")]
-    pub eid: String,
-    pub x: i64,
-    pub y: i64,
-    pub width: Option<i64>,
-    pub height: Option<i64>,
-    pub origin_x: i64,
-    pub origin_y: i64,
-    pub rotation: Option<i64>,
-    pub flipped_x: Option<bool>,
-    pub flipped_y: Option<bool>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct InfoTables {
     pub entity_table: Vec<EntityTableEntry>,
     pub tileset_table: Vec<TilesetTableEntry>,
