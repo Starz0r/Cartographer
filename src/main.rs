@@ -115,12 +115,12 @@ pub fn main() -> Result<()> {
     let layers = map.layer_instances.unwrap();
     for layer in layers.iter() {
         // signal layer type
-        match layer.layer_instance_type {
-            String::from("IntGrid") => {
+        match layer.layer_instance_type.as_ref() {
+            "IntGrid" => {
                 layer::set_type(&dst, 1)?;
             }
 
-            String::from("Entities") => {
+            "Entities" => {
                 layer::set_type(&dst, 3)?;
             }
         }
