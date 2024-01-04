@@ -136,7 +136,7 @@ pub fn main() -> Result<()> {
         if layer.layer_instance_type == String::from("IntGrid") {
             // keep track of the y axis manually
             let (mut cur_x, mut cur_y) = (0, 0);
-            let grid = layer.int_grid_csv.as_ref().unwrap();
+            let grid = &layer.int_grid_csv;
             // grid cells
             for cell in grid.iter() {
                 if cur_x == layer.c_wid {
@@ -144,7 +144,7 @@ pub fn main() -> Result<()> {
                     cur_y += 1;
                 }
 
-                grid::cell_set(&dst, cur_x as i16, cur_y as i16, cell.parse::<i8>()?).unwrap();
+                grid::cell_set(&dst, cur_x as i16, cur_y as i16, *cell as i8).unwrap();
             }
         }
 
