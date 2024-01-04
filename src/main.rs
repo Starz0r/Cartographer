@@ -2,26 +2,30 @@ mod entity;
 mod global;
 mod grid;
 mod layer;
+mod ldtk;
 mod tile;
 
-use std::fs::File;
-use std::io::BufReader;
-use std::path::PathBuf;
+use std::{fs::File, io::BufReader, path::PathBuf};
 
 use {
     anyhow::Result,
-    byteorder::{LittleEndian, WriteBytesExt},
+    hashbrown::HashMap,
     serde::{Deserialize, Serialize},
     structopt::StructOpt,
 };
 
 use scopeguard::{defer, defer_on_unwind};
 
+use crate::ldtk::{LdtkJson, Level};
+
 #[derive(StructOpt, Debug)]
 #[structopt(name = "cartographer")]
 struct Cli {
     #[structopt(short, long, parse(from_os_str))]
-    input: PathBuf,
+    project: PathBuf,
+
+    #[structopt(short, long, parse(from_os_str))]
+    level: PathBuf,
 
     #[structopt(short, long, parse(from_os_str))]
     output: PathBuf,
@@ -55,19 +59,24 @@ pub struct TilesetTableEntry {
 
 pub fn main() -> Result<()> {
     use std::io::Read;
-    use std::io::Write;
 
     // read cli arguments
     let opt = Cli::from_args();
 
     // buffered file reading
-    let src = File::open(opt.input)?;
+    let src = File::open(opt.project)?;
     let mut buf = BufReader::new(src);
     let mut con = String::new();
 
     // marshal into a data structure
     buf.read_to_string(&mut con)?;
-    let map: OgmoMap = serde_json::from_str(&con)?;
+    let project: LdtkJson = serde_json::from_str(&con)?;
+
+    let src = File::open(opt.level)?;
+    let mut buf = BufReader::new(src);
+    let mut con = String::new();
+    buf.read_to_string(&mut con)?;
+    let map: Level = serde_json::from_str(&con)?;
 
     // read infotable
     let infotable_file = File::open(opt.info_table)?;
@@ -86,74 +95,75 @@ pub fn main() -> Result<()> {
     global::write_header(&dst)?;
 
     // global level properties
-    global::set_width(&dst, map.width)?;
-    global::set_height(&dst, map.height)?;
+    use std::convert::TryInto;
+    global::set_width(
+        &dst,
+        project
+            .default_level_width
+            .unwrap_or_else(|| 0)
+            .try_into()?,
+    )?;
+    global::set_height(
+        &dst,
+        project
+            .default_level_height
+            .unwrap_or_else(|| 0)
+            .try_into()?,
+    )?;
 
     // iterate through layers
-    for layer in map.layers.iter() {
+    let layers = map.layer_instances.unwrap();
+    for layer in layers.iter() {
         // signal layer type
-        if !layer.data_coords2_d.is_empty() {
-            layer::set_type(&dst, 0)?;
-        }
-        if layer.array_mode.is_some() {
-            layer::set_type(&dst, 1)?;
-        }
-        if !layer.entities.is_empty() {
-            layer::set_type(&dst, 3)?;
+        match layer.layer_instance_type {
+            String::from("IntGrid") => {
+                layer::set_type(&dst, 1)?;
+            }
+
+            String::from("Entities") => {
+                layer::set_type(&dst, 3)?;
+            }
         }
 
         // set width and height
-        layer::set_width(&dst, layer.grid_cell_width)?;
-        layer::set_height(&dst, layer.grid_cell_height)?;
+        layer::set_width(&dst, layer.grid_size.try_into()?)?;
+        layer::set_height(&dst, layer.grid_size.try_into()?)?;
 
-        if layer.array_mode.is_some() {
-            let array_mode = layer.array_mode.unwrap();
-
+        if layer.layer_instance_type == String::from("IntGrid") {
             // keep track of the y axis manually
-            if array_mode == 0 || layer.grid.is_some() {
-                let (mut cur_x, mut cur_y) = (0, 0);
-                let grid = layer.grid.as_ref().unwrap();
-                // grid cells
-                for cell in grid.iter() {
-                    if cur_x == layer.grid_cells_x {
-                        cur_x = 0; // reset x cursor
-                        cur_y += 1;
-                    }
+            let (mut cur_x, mut cur_y) = (0, 0);
+            let grid = layer.int_grid_csv.as_ref().unwrap();
+            // grid cells
+            for cell in grid.iter() {
+                if cur_x == layer.c_wid {
+                    cur_x = 0; // reset x cursor
+                    cur_y += 1;
+                }
 
-                    grid::cell_set(&dst, cur_x as i16, cur_y as i16, cell.parse::<i8>()?).unwrap();
-                }
-            } else {
-                if layer.grid2d.is_some() {
-                    let (mut cur_x, mut cur_y) = (0, 0);
-                    let grid = layer.grid2d.as_ref().unwrap();
-                    // grid rows and cells
-                    for row in grid.iter() {
-                        for cell in row.iter() {
-                            grid::cell_set(&dst, cur_x as i16, cur_y as i16, cell.parse::<i8>()?)?;
-                            cur_x += 1;
-                        }
-                        cur_x = 0; // reset x cursor
-                        cur_y += 1;
-                    }
-                }
+                grid::cell_set(&dst, cur_x as i16, cur_y as i16, cell.parse::<i8>()?).unwrap();
             }
         }
 
         // entities
-        let entities = &layer.entities;
+        let entities = &layer.entity_instances;
         for entity in entities.iter() {
             for entry in ent_table.iter() {
                 if entity.name.eq(entry.name.as_str()) {
-                    let w = entity.width.unwrap_or(entry.width);
-                    let h = entity.height.unwrap_or(entry.height);
-                    let rot = entity.rotation.unwrap_or(0);
-                    let flipped_x = entity.flipped_x.unwrap_or(false);
-                    let flipped_y = entity.flipped_y.unwrap_or(false);
+                    // DANGER: px should always be populated with two entries
+                    // NOTE: [x,y] are effected by optional layer offsets
+                    // which just aren't taken into account here at all
+                    let x = unsafe { entity.px.get_unchecked(0) };
+                    let y = unsafe { entity.px.get_unchecked(1) };
+                    let w = entity.width;
+                    let h = entity.height;
+                    let rot = 0;
+                    let flipped_x = false;
+                    let flipped_y = false;
                     entity::create(
                         &dst,
                         entry.value as i32,
-                        entity.x as i32,
-                        entity.y as i32,
+                        *x as i32,
+                        *y as i32,
                         w as u32,
                         h as u32,
                         rot as i16,
@@ -165,30 +175,25 @@ pub fn main() -> Result<()> {
         }
 
         // tiles
-        let (mut cur_x, mut cur_y) = (0, 0);
-        let tile_rows = &layer.data_coords2_d;
-        for tile_row in tile_rows.iter() {
-            for tile in tile_row.iter() {
-                if tile.len().eq(&1) {
-                    cur_x += 1;
-                    continue;
+        for tile in layer.grid_tiles.iter() {
+            for entry in ts_table.iter() {
+                if entry.name.eq(entry.name.as_str()) {
+                    // NOTE: same as above, optional layer offsets
+                    // aren't taken into account here
+                    let x = unsafe { tile.px.get_unchecked(0) };
+                    let y = unsafe { tile.px.get_unchecked(1) };
+                    let src_x = unsafe { tile.src.get_unchecked(0) };
+                    let src_y = unsafe { tile.src.get_unchecked(1) };
+                    tile::new(
+                        &dst,
+                        entry.value as i32,
+                        *x as u32,
+                        *y as u32,
+                        *src_x as u16,
+                        *src_y as u16,
+                    )?;
                 }
-                for entry in ts_table.iter() {
-                    if entry.name.eq(entry.name.as_str()) {
-                        tile::new(
-                            &dst,
-                            entry.value as i32,
-                            cur_x,
-                            cur_y,
-                            tile[0] as u16,
-                            tile[1] as u16,
-                        )?;
-                    }
-                }
-                cur_x += 1;
             }
-            cur_x = 0; // reset x cursor
-            cur_y += 1;
         }
     }
 
