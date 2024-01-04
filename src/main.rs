@@ -177,7 +177,9 @@ pub fn main() -> Result<()> {
         // tiles
         for tile in layer.grid_tiles.iter() {
             for entry in ts_table.iter() {
-                if entry.name.eq(entry.name.as_str()) {
+                // TODO: use tileset_def_uid & override_tileset_uid instead
+                let tileset_name = layer.tileset_rel_path.clone().unwrap_or_else(|| String::new());
+                if tileset_name.eq(entry.name.as_str()) {
                     // NOTE: same as above, optional layer offsets
                     // aren't taken into account here
                     let x = unsafe { tile.px.get_unchecked(0) };
