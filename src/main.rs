@@ -123,6 +123,10 @@ pub fn main() -> Result<()> {
             "Entities" => {
                 layer::set_type(&dst, 3)?;
             }
+
+            &_ => {
+                panic!("unsupported layer type")
+            }
         }
 
         // set width and height
