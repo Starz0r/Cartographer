@@ -152,7 +152,7 @@ pub fn main() -> Result<()> {
         let entities = &layer.entity_instances;
         for entity in entities.iter() {
             for entry in ent_table.iter() {
-                if entity.name.eq(entry.name.as_str()) {
+                if entity.identifier.eq(entry.name.as_str()) {
                     // DANGER: px should always be populated with two entries
                     // NOTE: [x,y] are effected by optional layer offsets
                     // which just aren't taken into account here at all
